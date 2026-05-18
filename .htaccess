@@ -1,0 +1,51 @@
+# ============================================================
+# quiz_generator/.htaccess
+# ============================================================
+
+# Override Options without +/- prefix to match parent server config.
+# Removes Indexes (directory listing) and MultiViews (content negotiation).
+# Keeps FollowSymLinks required by mod_rewrite.
+Options FollowSymLinks
+
+# ── Block direct access to sensitive files ───────────────────
+<FilesMatch "\.(env|log|sql|lock|sh|bat)$">
+    Require all denied
+</FilesMatch>
+
+# ── Rewrite rules ────────────────────────────────────────────
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block direct access to /config/
+    RewriteRule ^config(/|$) - [F,L]
+
+    # Block direct access to /vendor/
+    RewriteRule ^vendor(/|$) - [F,L]
+
+    # Block .env
+    RewriteRule ^\.env$ - [F,L]
+
+    # Block hidden files/directories (starting with .) except .well-known
+    RewriteRule (^|/)\.(?!well-known) - [F,L]
+</IfModule>
+
+# ── Security headers ─────────────────────────────────────────
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    Header always unset X-Powered-By
+</IfModule>
+
+# ── PHP hardening ────────────────────────────────────────────
+<IfModule mod_php8.c>
+    php_flag expose_php Off
+    php_flag session.use_only_cookies On
+    php_flag session.use_strict_mode On
+    php_flag session.cookie_httponly On
+    php_value session.cookie_samesite "Strict"
+    php_flag display_errors Off
+    php_flag log_errors On
+</IfModule>

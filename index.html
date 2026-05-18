@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Smart Real-Time Quiz Generator — Create, manage, and take timed quizzes with live leaderboards and instant grading.">
+    <title>Smart Quiz Generator — Real-Time Quiz Platform</title>
+
+    <!-- Favicon (emoji fallback) -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+
+    <!-- Bootstrap 5 CSS -->
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous"
+    >
+
+    <!-- Landing page styles -->
+    <link rel="stylesheet" href="assets/css/landing.css">
+</head>
+<body>
+
+<!-- =====================================================================
+     NAVBAR
+     ===================================================================== -->
+<nav id="navbar">
+    <div class="container">
+        <div class="nav-inner">
+
+            <!-- Brand -->
+            <a href="#hero" class="nav-brand">
+                <div class="brand-icon" aria-hidden="true">🧠</div>
+                <span>QuizGen</span>
+            </a>
+
+            <!-- Desktop links -->
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#how-it-works">How It Works</a></li>
+                <li><a href="#stats">Stats</a></li>
+                <li><a href="#cta">Get Started</a></li>
+            </ul>
+
+            <!-- Desktop CTA buttons -->
+            <div class="nav-actions">
+                <a href="login.php" class="btn btn-outline">Log In</a>
+                <a href="register.php" class="btn btn-primary">Sign Up Free</a>
+            </div>
+
+            <!-- Hamburger (mobile) -->
+            <button
+                id="nav-toggle"
+                class="nav-toggle"
+                aria-label="Open navigation menu"
+                aria-expanded="false"
+            >
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+
+        </div>
+    </div>
+</nav>
+
+<!-- Mobile full-screen menu -->
+<div id="nav-mobile" class="nav-mobile" role="dialog" aria-label="Navigation menu">
+    <button id="nav-mobile-close" class="nav-mobile-close" aria-label="Close menu">&times;</button>
+    <a href="#features">Features</a>
+    <a href="#how-it-works">How It Works</a>
+    <a href="#stats">Stats</a>
+    <a href="login.php" class="btn btn-outline">Log In</a>
+    <a href="register.php" class="btn btn-accent btn-lg">Sign Up Free</a>
+</div>
+
+
+<!-- =====================================================================
+     HERO
+     ===================================================================== -->
+<section id="hero">
+    <div class="hero-bg" aria-hidden="true"></div>
+
+    <div class="container">
+        <div class="hero-content">
+
+            <!-- Left: text -->
+            <div class="hero-text">
+                <div class="badge-pill">
+                    <span class="pulse-dot" aria-hidden="true"></span>
+                    Live Real-Time Quizzes
+                </div>
+
+                <h1>
+                    Quiz smarter.<br>
+                    Grade <span class="text-gradient">instantly.</span><br>
+                    Lead the board.
+                </h1>
+
+                <p>
+                    Build timed quizzes, watch students compete live, and see
+                    leaderboards update in real time — all powered by PHP, MySQL,
+                    and Pusher WebSockets.
+                </p>
+
+                <div class="hero-cta">
+                    <a href="register.php" class="btn btn-accent btn-lg">
+                        🚀 Get Started Free
+                    </a>
+                </div>
+
+                <div class="hero-stats">
+                    <div class="stat-item">
+                        <div class="stat-value">⚡ Live</div>
+                        <div class="stat-label">Real-time updates</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">🔒 Secure</div>
+                        <div class="stat-label">CSRF + bcrypt</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">📊 Auto</div>
+                        <div class="stat-label">Instant grading</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: quiz card mockup -->
+            <div class="hero-visual" aria-hidden="true">
+                <div class="quiz-mockup">
+                    <div class="mockup-header">
+                        <span class="mockup-title">📝 General Knowledge</span>
+                        <span class="mockup-timer" id="mockup-timer">02:47</span>
+                    </div>
+
+                    <div class="mockup-progress">
+                        <div class="mockup-progress-bar"></div>
+                    </div>
+
+                    <p class="mockup-question">
+                        Which planet is known as the Red Planet?
+                    </p>
+
+                    <div class="mockup-options">
+                        <div class="mockup-option" tabindex="0" role="button">
+                            <div class="option-dot"></div>
+                            <span>A. Venus</span>
+                        </div>
+                        <div class="mockup-option selected" tabindex="0" role="button">
+                            <div class="option-dot filled"></div>
+                            <span>B. Mars</span>
+                        </div>
+                        <div class="mockup-option" tabindex="0" role="button">
+                            <div class="option-dot"></div>
+                            <span>C. Jupiter</span>
+                        </div>
+                        <div class="mockup-option" tabindex="0" role="button">
+                            <div class="option-dot"></div>
+                            <span>D. Saturn</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Floating badges -->
+                <div class="float-badge badge-live">
+                    <span class="pulse-dot"></span>
+                    12 students live
+                </div>
+                <div class="float-badge badge-score">
+                    🏆 Score: 8 / 10
+                </div>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+
+<!-- =====================================================================
+     FEATURES
+     ===================================================================== -->
+<section id="features">
+    <div class="container">
+        <div class="text-center">
+            <span class="section-label">What you get</span>
+            <h2 class="section-title">Everything you need to run great quizzes</h2>
+            <p class="section-subtitle">
+                From quiz creation to live leaderboards, every feature is built in
+                and ready to use out of the box.
+            </p>
+        </div>
+
+        <div class="features-grid">
+
+            <div class="feature-card reveal">
+                <div class="feature-icon" style="background:rgba(67,97,238,0.15);">⚡</div>
+                <h3>Real-Time Leaderboard</h3>
+                <p>
+                    Scores update live via Pusher WebSockets the moment a student
+                    submits. No page refresh needed — admins see everything instantly.
+                </p>
+            </div>
+
+            <div class="feature-card reveal reveal-delay-1">
+                <div class="feature-icon" style="background:rgba(247,37,133,0.15);">⏱️</div>
+                <h3>Countdown Timer</h3>
+                <p>
+                    Each quiz runs on a configurable timer. When time runs out the
+                    quiz auto-submits, filling unanswered questions with null scores.
+                </p>
+            </div>
+
+            <div class="feature-card reveal reveal-delay-2">
+                <div class="feature-icon" style="background:rgba(76,201,240,0.15);">🎯</div>
+                <h3>Instant Auto-Grading</h3>
+                <p>
+                    MySQL triggers grade every answer the moment it's inserted.
+                    Stored procedures compute final scores automatically on submission.
+                </p>
+            </div>
+
+            <div class="feature-card reveal reveal-delay-3">
+                <div class="feature-icon" style="background:rgba(74,222,128,0.15);">🔒</div>
+                <h3>Secure by Default</h3>
+                <p>
+                    bcrypt password hashing, CSRF tokens on every form, PDO prepared
+                    statements, and XSS-safe output throughout the entire codebase.
+                </p>
+            </div>
+
+            <div class="feature-card reveal reveal-delay-1">
+                <div class="feature-icon" style="background:rgba(251,191,36,0.15);">📋</div>
+                <h3>MCQ &amp; True/False</h3>
+                <p>
+                    Create multiple-choice questions with 4 options (A–D) or
+                    True/False questions. Randomize question order per quiz.
+                </p>
+            </div>
+
+            <div class="feature-card reveal reveal-delay-2">
+                <div class="feature-icon" style="background:rgba(167,139,250,0.15);">📊</div>
+                <h3>CSV Export</h3>
+                <p>
+                    Download full results for any quiz as a CSV file — username,
+                    score, percentage, submission time, and status in one click.
+                </p>
+            </div>
+
+            <div class="feature-card reveal">
+                <div class="feature-icon" style="background:rgba(248,113,113,0.15);">🌙</div>
+                <h3>Dark Mode</h3>
+                <p>
+                    One-click dark mode toggle with localStorage persistence.
+                    Preference is remembered across sessions automatically.
+                </p>
+            </div>
+
+            <div class="feature-card reveal reveal-delay-1">
+                <div class="feature-icon" style="background:rgba(52,211,153,0.15);">👥</div>
+                <h3>Role-Based Access</h3>
+                <p>
+                    Admins create and manage quizzes; students take them. Every
+                    endpoint enforces role checks before any business logic runs.
+                </p>
+            </div>
+
+            <div class="feature-card reveal reveal-delay-2">
+                <div class="feature-icon" style="background:rgba(56,189,248,0.15);">🔔</div>
+                <h3>Live Notifications</h3>
+                <p>
+                    The admin dashboard plays a notification sound and prepends a
+                    new row to the live feed every time a student submits a quiz.
+                </p>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+
+<!-- =====================================================================
+     HOW IT WORKS
+     ===================================================================== -->
+<section id="how-it-works">
+    <div class="container">
+        <div class="text-center">
+            <span class="section-label">Simple process</span>
+            <h2 class="section-title">Up and running in minutes</h2>
+            <p class="section-subtitle">
+                Four steps from setup to your first live quiz session.
+            </p>
+        </div>
+
+        <div class="steps-grid">
+
+            <div class="step-item reveal">
+                <div class="step-number">1</div>
+                <h3>Set Up</h3>
+                <p>
+                    Import <code>database.sql</code>, fill in <code>.env</code>
+                    with your DB and Pusher credentials, run
+                    <code>composer install</code>.
+                </p>
+            </div>
+
+            <div class="step-item reveal reveal-delay-1">
+                <div class="step-number">2</div>
+                <h3>Create a Quiz</h3>
+                <p>
+                    Log in as teacher, add a quiz with a time limit, then add
+                    MCQ or True/False questions with point values.
+                </p>
+            </div>
+
+            <div class="step-item reveal reveal-delay-2">
+                <div class="step-number">3</div>
+                <h3>Students Join</h3>
+                <p>
+                    Students register, log in, and take the quiz or play
+                    flashcard mode from their dashboard.
+                </p>
+            </div>
+
+            <div class="step-item reveal reveal-delay-3">
+                <div class="step-number">4</div>
+                <h3>Watch Live</h3>
+                <p>
+                    The admin dashboard updates in real time — live submissions
+                    feed, leaderboard, and participant count via Pusher.
+                </p>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+
+<!-- =====================================================================
+     STATS
+     ===================================================================== -->
+<section id="stats">
+    <div class="container">
+        <div class="text-center">
+            <span class="section-label">By the numbers</span>
+            <h2 class="section-title">Built for performance</h2>
+        </div>
+
+        <div class="stats-grid">
+
+            <div class="stat-card reveal">
+                <div class="stat-value" data-target="7" data-suffix=" tables">0</div>
+                <div class="stat-label">Database Tables</div>
+            </div>
+
+            <div class="stat-card reveal reveal-delay-1">
+                <div class="stat-value" data-target="2" data-suffix=" procs">0</div>
+                <div class="stat-label">Stored Procedures</div>
+            </div>
+
+            <div class="stat-card reveal reveal-delay-2">
+                <div class="stat-value" data-target="100" data-suffix="%">0</div>
+                <div class="stat-label">PDO Prepared Statements</div>
+            </div>
+
+            <div class="stat-card reveal reveal-delay-3">
+                <div class="stat-value" data-target="0" data-suffix="ms">0</div>
+                <div class="stat-label">Manual Page Refresh Needed</div>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+
+<!-- =====================================================================
+     CTA
+     ===================================================================== -->
+<section id="cta">
+    <div class="container">
+        <div class="cta-box reveal">
+            <h2>
+                Ready to run your first<br>
+                <span class="text-gradient">real-time quiz?</span>
+            </h2>
+            <p>
+                Create an account in seconds. No credit card required.
+                Works on any XAMPP / Apache + MySQL setup.
+            </p>
+            <div class="cta-buttons">
+                <a href="register.php" class="btn btn-accent btn-lg">
+                    🚀 Create Free Account
+                </a>
+                <a href="login.php" class="btn btn-outline btn-lg">
+                    Already have an account? Log In
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+<!-- =====================================================================
+     FOOTER
+     ===================================================================== -->
+<footer id="footer">
+    <div class="container">
+        <div class="footer-inner">
+
+            <div class="footer-brand">
+                <div class="brand-icon" style="width:28px;height:28px;font-size:0.9rem;background:linear-gradient(135deg,#4361ee,#f72585);border-radius:0.4rem;display:flex;align-items:center;justify-content:center;" aria-hidden="true">🧠</div>
+                <span>Smart Quiz Generator</span>
+            </div>
+
+            <ul class="footer-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#how-it-works">How It Works</a></li>
+                <li><a href="login.php">Log In</a></li>
+                <li><a href="register.php">Sign Up</a></li>
+            </ul>
+
+        </div>
+
+        <p class="footer-copy">
+            &copy; <span id="footer-year"></span> Smart Quiz Generator.
+            Built with PHP, MySQL, Bootstrap 5 &amp; Pusher.
+        </p>
+    </div>
+</footer>
+
+
+<!-- =====================================================================
+     SCRIPTS
+     ===================================================================== -->
+<!-- Bootstrap 5 JS bundle -->
+<script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc4s9bIOgUxi8T/jzmFXFMrWCU3FA0e3dbKJx/A45Bqp"
+    crossorigin="anonymous"
+></script>
+
+<!-- Landing page JS -->
+<script src="assets/js/main.js"></script>
+
+<!-- Footer year + mockup timer -->
+<script>
+    // Dynamic footer year
+    document.getElementById('footer-year').textContent = new Date().getFullYear();
+
+    // Mockup countdown timer (purely decorative)
+    (function () {
+        var timerEl = document.getElementById('mockup-timer');
+        if (!timerEl) return;
+
+        var seconds = 2 * 60 + 47; // 02:47
+
+        setInterval(function () {
+            if (seconds > 0) seconds--;
+            var m = Math.floor(seconds / 60).toString().padStart(2, '0');
+            var s = (seconds % 60).toString().padStart(2, '0');
+            timerEl.textContent = m + ':' + s;
+            if (seconds <= 30) timerEl.style.color = '#f87171';
+        }, 1000);
+    }());
+</script>
+
+</body>
+</html>
