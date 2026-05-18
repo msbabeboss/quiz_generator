@@ -110,7 +110,22 @@ LoadModule rewrite_module modules/mod_rewrite.so
 
 And `AllowOverride All` is set for your htdocs directory.
 
-### 6. Register accounts
+### 6. Load demo accounts (optional)
+
+Import the seed file to get ready-made test accounts:
+
+```bash
+mysql -u root -p quiz_db < database_seed.sql
+```
+
+| Role | Username | Password | URL |
+|---|---|---|---|
+| 👩‍🏫 Teacher | `teacher_demo` | `admin123` | `/teacher/dashboard.php` |
+| 🎓 Student | `student_demo` | `admin123` | `/student/dashboard.php` |
+
+> ⚠️ These are for **testing only**. Delete or change them before going live.
+
+### 7. Register your own accounts
 
 - Go to `/register.php` to create a **Student** account
 - Go to `/teacher/register.php` to create a **Teacher** account  
