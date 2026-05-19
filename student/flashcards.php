@@ -55,8 +55,6 @@ try {
     error_log('flashcards.php PDOException (enrollment check): ' . $e->getMessage());
     header('Location: ' . APP_BASE . '/student/dashboard.php'); exit;
 }
-    header('Location: ' . APP_BASE . '/student/dashboard.php'); exit;
-}
 
 $questions = getQuestions($quizId, (bool)$quiz['is_randomized']);
 

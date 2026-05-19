@@ -13,6 +13,9 @@ requireRole('teacher');
 $teacherId = (int) $_SESSION['user_id'];
 $error = $success = '';
 
+// ── Purge expired quizzes on every page load ─────────────────────────────
+purgeExpiredQuizzes();
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrfToken($_POST['csrf_token'] ?? '')) { http_response_code(403); exit('Forbidden'); }
     $action = $_POST['action'] ?? 'create';
@@ -37,12 +40,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ' . APP_BASE . '/teacher/quizzes.php?success=deleted'); exit;
     }
 
+    // ── Extend expiry by +30 days from today ────────────────────────────
+    if ($action === 'extend_expiry') {
+        $qid = (int)($_POST['quiz_id'] ?? 0);
+        $pdo = getDB();
+        $s = $pdo->prepare('SELECT created_by FROM quizzes WHERE id = ?');
+        $s->execute([$qid]);
+        $row = $s->fetch();
+        if ($row && (int)$row['created_by'] === $teacherId) {
+            $newExpiry = date('Y-m-d H:i:s', strtotime('+30 days'));
+            setQuizExpiry($qid, $newExpiry);
+        }
+        header('Location: ' . APP_BASE . '/teacher/quizzes.php?success=extended'); exit;
+    }
+
     if ($action === 'create') {
         $data = [
             'title'         => trim($_POST['title']       ?? ''),
             'description'   => trim($_POST['description'] ?? ''),
             'time_limit'    => $_POST['time_limit']       ?? '',
             'is_randomized' => isset($_POST['is_randomized']) ? 1 : 0,
+            // expires_at defaults to +30 days inside createQuiz()
         ];
         $newId = createQuiz($data, $teacherId);
         if ($newId === false) {
@@ -91,7 +109,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 if (isset($_GET['success'])) {
-    $msgs = ['toggled' => 'Quiz status updated.', 'deleted' => 'Quiz deleted.'];
+    $msgs = [
+        'toggled'  => 'Quiz status updated.',
+        'deleted'  => 'Quiz deleted.',
+        'extended' => 'Expiry extended by 30 days.',
+    ];
     $success = $msgs[$_GET['success']] ?? '';
 }
 
@@ -108,7 +130,37 @@ if (!empty($quizzes)) {
 }
 
 $csrfToken = generateCsrfToken();
+$now       = new DateTimeImmutable();
+
 function e(string $v): string { return htmlspecialchars($v, ENT_QUOTES, 'UTF-8'); }
+
+/**
+ * Return a human-readable expiry label + CSS class for the badge.
+ * Returns ['label' => string, 'class' => string, 'urgent' => bool]
+ */
+function expiryInfo(?string $expiresAt, DateTimeImmutable $now): array {
+    if ($expiresAt === null) {
+        return ['label' => 'No expiry', 'class' => 'bg-secondary', 'urgent' => false];
+    }
+    $exp  = new DateTimeImmutable($expiresAt);
+    $diff = $now->diff($exp);
+    $days = (int) $diff->days;
+
+    if ($exp <= $now) {
+        return ['label' => 'Expired', 'class' => 'bg-danger', 'urgent' => true];
+    }
+    if ($days === 0) {
+        $hours = (int) $diff->h;
+        return ['label' => "Expires in {$hours}h", 'class' => 'bg-danger', 'urgent' => true];
+    }
+    if ($days <= 3) {
+        return ['label' => "Expires in {$days}d", 'class' => 'bg-danger', 'urgent' => true];
+    }
+    if ($days <= 7) {
+        return ['label' => "Expires in {$days}d", 'class' => 'bg-warning text-dark', 'urgent' => true];
+    }
+    return ['label' => "Expires in {$days}d", 'class' => 'bg-info text-dark', 'urgent' => false];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -141,15 +193,23 @@ function e(string $v): string { return htmlspecialchars($v, ENT_QUOTES, 'UTF-8')
     <?php else: ?>
     <div class="table-responsive mb-5">
         <table class="table table-dark table-hover align-middle">
-            <thead><tr><th>Title</th><th>Questions</th><th>Time Limit</th><th>Randomized</th><th>Active</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Title</th><th>Questions</th><th>Time Limit</th><th>Randomized</th><th>Active</th><th>Expiry</th><th>Actions</th></tr></thead>
             <tbody>
             <?php foreach ($quizzes as $q): ?>
-            <tr>
+            <?php $exp = expiryInfo($q['expires_at'] ?? null, $now); ?>            <tr class="<?= $exp['urgent'] ? 'table-warning' : '' ?>">
                 <td class="fw-semibold"><?= e($q['title']) ?></td>
                 <td><span class="badge bg-secondary"><?= (int)($qCounts[$q['id']] ?? 0) ?> Q</span></td>
                 <td><?= e((string)$q['time_limit']) ?>s</td>
                 <td><?= $q['is_randomized'] ? '<span class="badge bg-info text-dark">Yes</span>' : '<span class="badge bg-secondary">No</span>' ?></td>
                 <td><?= $q['is_active'] ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-warning text-dark">Inactive</span>' ?></td>
+                <td>
+                    <span class="badge <?= e($exp['class']) ?>"><?= e($exp['label']) ?></span>
+                    <?php if (!empty($q['expires_at'])): ?>
+                        <div class="text-muted" style="font-size:.72rem; margin-top:2px;">
+                            <?= e(date('M j, Y', strtotime($q['expires_at']))) ?>
+                        </div>
+                    <?php endif; ?>
+                </td>
                 <td class="d-flex gap-1 flex-wrap">
                     <a href="<?= APP_BASE ?>/teacher/edit-quiz.php?id=<?= (int)$q['id'] ?>" class="btn btn-sm btn-primary">Edit</a>
                     <form method="post" class="d-inline">
@@ -157,6 +217,12 @@ function e(string $v): string { return htmlspecialchars($v, ENT_QUOTES, 'UTF-8')
                         <input type="hidden" name="action" value="toggle">
                         <input type="hidden" name="quiz_id" value="<?= (int)$q['id'] ?>">
                         <button class="btn btn-sm btn-outline-secondary"><?= $q['is_active'] ? 'Deactivate' : 'Activate' ?></button>
+                    </form>
+                    <form method="post" class="d-inline" title="Extend expiry by 30 days from today">
+                        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                        <input type="hidden" name="action" value="extend_expiry">
+                        <input type="hidden" name="quiz_id" value="<?= (int)$q['id'] ?>">
+                        <button class="btn btn-sm btn-outline-info">+30 Days</button>
                     </form>
                     <form method="post" class="d-inline" onsubmit="return confirm('Delete this quiz and all its data?');">
                         <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">

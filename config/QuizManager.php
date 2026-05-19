@@ -131,10 +131,12 @@ class QuizManager implements QuizManagerInterface {
      * Postconditions (on success):
      *   - Returns new quiz ID (positive integer)
      *   - Quiz record inserted with created_by = $adminId and is_active = 1
+     *   - expires_at is set to NOW() + 30 days by default
      *   - No side effects on existing quiz records
      *
      * @param array $data    Must contain 'title' and 'time_limit'; optionally
-     *                       'description' (string) and 'is_randomized' (0|1).
+     *                       'description' (string), 'is_randomized' (0|1),
+     *                       and 'expires_at' (datetime string or null).
      * @param int   $adminId ID of the admin creating the quiz.
      * @return int|false     New quiz ID, or false on validation/DB failure.
      */
@@ -154,13 +156,29 @@ class QuizManager implements QuizManagerInterface {
         $description  = isset($data['description']) ? (string) $data['description'] : null;
         $timeLimit    = (int) $data['time_limit'];
         $isRandomized = isset($data['is_randomized']) ? (int) (bool) $data['is_randomized'] : 0;
+        // Default expiry: 30 days from now. Pass expires_at = null to disable.
+        $expiresAt    = array_key_exists('expires_at', $data)
+            ? $data['expires_at']
+            : date('Y-m-d H:i:s', strtotime('+30 days'));
 
         try {
-            $stmt = $this->pdo->prepare(
-                'INSERT INTO quizzes (title, description, created_by, time_limit, is_randomized, is_active)
-                 VALUES (?, ?, ?, ?, ?, 1)'
-            );
-            $stmt->execute([$title, $description, $adminId, $timeLimit, $isRandomized]);
+            // Try inserting with expires_at. If the column doesn't exist yet
+            // (migration not run), fall back to inserting without it.
+            try {
+                $stmt = $this->pdo->prepare(
+                    'INSERT INTO quizzes (title, description, created_by, time_limit, is_randomized, is_active, expires_at)
+                     VALUES (?, ?, ?, ?, ?, 1, ?)'
+                );
+                $stmt->execute([$title, $description, $adminId, $timeLimit, $isRandomized, $expiresAt]);
+            } catch (PDOException $colErr) {
+                // Column probably doesn't exist — insert without it
+                error_log('QuizManager::createQuiz falling back (no expires_at column): ' . $colErr->getMessage());
+                $stmt = $this->pdo->prepare(
+                    'INSERT INTO quizzes (title, description, created_by, time_limit, is_randomized, is_active)
+                     VALUES (?, ?, ?, ?, ?, 1)'
+                );
+                $stmt->execute([$title, $description, $adminId, $timeLimit, $isRandomized]);
+            }
             $id = (int) $this->pdo->lastInsertId();
             return $id > 0 ? $id : false;
         } catch (PDOException $e) {
@@ -181,7 +199,7 @@ class QuizManager implements QuizManagerInterface {
      * @return bool         true on success, false on validation/DB failure.
      */
     public function updateQuiz(int $quizId, array $data): bool {
-        $allowed = ['title', 'description', 'time_limit', 'is_randomized'];
+        $allowed = ['title', 'description', 'time_limit', 'is_randomized', 'expires_at'];
         $setClauses = [];
         $params     = [];
 
@@ -207,6 +225,11 @@ class QuizManager implements QuizManagerInterface {
                 $params[] = (int) $data[$field];
             } elseif ($field === 'is_randomized') {
                 $params[] = (int) (bool) $data[$field];
+            } elseif ($field === 'expires_at') {
+                // Accept a datetime string or null (no expiry)
+                $params[] = $data[$field] !== null && $data[$field] !== ''
+                    ? (string) $data[$field]
+                    : null;
             } else {
                 $params[] = $data[$field] === null ? null : (string) $data[$field];
             }
@@ -231,21 +254,79 @@ class QuizManager implements QuizManagerInterface {
     }
 
     /**
-     * Delete a quiz by ID.
+     * Delete a quiz and ALL associated data by ID.
      *
-     * Cascading deletes for questions, question_options, quiz_sessions,
-     * answers, and results are handled automatically by the FK constraints
-     * defined in the database schema.
+     * Deletes are performed in dependency order so this works even if the
+     * database FK constraints do not have ON DELETE CASCADE set.
+     * Order: answers → results → quiz_sessions → question_options →
+     *        questions → flashcard_sessions → quiz_enrollments →
+     *        quiz_access_codes → classroom_quizzes → quizzes
      *
      * @param int $quizId The quiz to delete.
      * @return bool       true on success, false on DB error.
      */
     public function deleteQuiz(int $quizId): bool {
         try {
-            $stmt = $this->pdo->prepare('DELETE FROM quizzes WHERE id = ?');
-            $stmt->execute([$quizId]);
+            $this->pdo->beginTransaction();
+
+            // 1. answers (depend on quiz_sessions and questions)
+            $this->pdo->prepare(
+                'DELETE a FROM answers a
+                 JOIN quiz_sessions qs ON a.session_id = qs.id
+                 WHERE qs.quiz_id = ?'
+            )->execute([$quizId]);
+
+            // 2. results (depend on quiz_sessions and quizzes)
+            $this->pdo->prepare(
+                'DELETE FROM results WHERE quiz_id = ?'
+            )->execute([$quizId]);
+
+            // 3. quiz_sessions (depend on quizzes)
+            $this->pdo->prepare(
+                'DELETE FROM quiz_sessions WHERE quiz_id = ?'
+            )->execute([$quizId]);
+
+            // 4. question_options (depend on questions → quizzes)
+            $this->pdo->prepare(
+                'DELETE qo FROM question_options qo
+                 JOIN questions q ON qo.question_id = q.id
+                 WHERE q.quiz_id = ?'
+            )->execute([$quizId]);
+
+            // 5. questions (depend on quizzes)
+            $this->pdo->prepare(
+                'DELETE FROM questions WHERE quiz_id = ?'
+            )->execute([$quizId]);
+
+            // 6. flashcard_sessions (depend on quizzes)
+            $this->pdo->prepare(
+                'DELETE FROM flashcard_sessions WHERE quiz_id = ?'
+            )->execute([$quizId]);
+
+            // 7. quiz_enrollments (depend on quiz_access_codes → quizzes)
+            $this->pdo->prepare(
+                'DELETE FROM quiz_enrollments WHERE quiz_id = ?'
+            )->execute([$quizId]);
+
+            // 8. quiz_access_codes (depend on quizzes)
+            $this->pdo->prepare(
+                'DELETE FROM quiz_access_codes WHERE quiz_id = ?'
+            )->execute([$quizId]);
+
+            // 9. classroom_quizzes (depend on quizzes)
+            $this->pdo->prepare(
+                'DELETE FROM classroom_quizzes WHERE quiz_id = ?'
+            )->execute([$quizId]);
+
+            // 10. finally delete the quiz itself
+            $this->pdo->prepare(
+                'DELETE FROM quizzes WHERE id = ?'
+            )->execute([$quizId]);
+
+            $this->pdo->commit();
             return true;
         } catch (PDOException $e) {
+            $this->pdo->rollBack();
             error_log('QuizManager::deleteQuiz PDOException: ' . $e->getMessage());
             return false;
         }
@@ -314,6 +395,59 @@ class QuizManager implements QuizManagerInterface {
             return true;
         } catch (PDOException $e) {
             error_log('QuizManager::toggleActive PDOException: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Delete all quizzes whose expires_at is in the past, along with all
+     * their associated data (same deletion order as deleteQuiz).
+     *
+     * @return int  Number of quizzes purged, or -1 on DB error.
+     */
+    public function purgeExpiredQuizzes(): int {
+        try {
+            $stmt = $this->pdo->prepare(
+                'SELECT id FROM quizzes WHERE expires_at IS NOT NULL AND expires_at <= NOW()'
+            );
+            $stmt->execute();
+            $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            if (empty($ids)) {
+                return 0;
+            }
+
+            $count = 0;
+            foreach ($ids as $quizId) {
+                if ($this->deleteQuiz((int) $quizId)) {
+                    $count++;
+                }
+            }
+            return $count;
+        } catch (PDOException $e) {
+            // Column may not exist yet — silently skip purge
+            error_log('QuizManager::purgeExpiredQuizzes PDOException (column may not exist yet): ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Update the expiry date of a quiz.
+     *
+     * @param int         $quizId    The quiz to update.
+     * @param string|null $expiresAt New expiry datetime string, or null to remove expiry.
+     * @return bool
+     */
+    public function setExpiry(int $quizId, ?string $expiresAt): bool {
+        try {
+            $stmt = $this->pdo->prepare(
+                'UPDATE quizzes SET expires_at = ? WHERE id = ?'
+            );
+            $stmt->execute([$expiresAt, $quizId]);
+            return true;
+        } catch (PDOException $e) {
+            // Column may not exist yet
+            error_log('QuizManager::setExpiry PDOException (column may not exist yet): ' . $e->getMessage());
             return false;
         }
     }
@@ -403,4 +537,24 @@ function listQuizzes(bool $activeOnly = false): array {
  */
 function toggleActive(int $quizId): bool {
     return getQuizManager()->toggleActive($quizId);
+}
+
+/**
+ * Delete all quizzes whose expires_at is in the past.
+ *
+ * @return int  Number of quizzes purged, or -1 on error.
+ */
+function purgeExpiredQuizzes(): int {
+    return getQuizManager()->purgeExpiredQuizzes();
+}
+
+/**
+ * Update the expiry date of a quiz.
+ *
+ * @param int         $quizId    The quiz to update.
+ * @param string|null $expiresAt New expiry datetime string, or null to remove expiry.
+ * @return bool
+ */
+function setQuizExpiry(int $quizId, ?string $expiresAt): bool {
+    return getQuizManager()->setExpiry($quizId, $expiresAt);
 }

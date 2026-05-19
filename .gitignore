@@ -36,5 +36,6 @@ localhost-san.cnf
 setup_ssl.php
 setup_check.php
 test.php
+test_ai.php
 
 # ── composer.lock is intentionally KEPT for reproducible installs ─

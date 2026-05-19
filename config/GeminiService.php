@@ -9,7 +9,7 @@ loadEnv(__DIR__ . '/../.env');
 class GeminiService {
 
     private string $apiKey;
-    private string $model = 'llama-3.1-8b-instant';
+    private string $model = 'llama-3.3-70b-versatile';
 
     public function __construct() {
         $this->apiKey = $_ENV['GROQ_API_KEY'] ?? '';
@@ -22,45 +22,37 @@ class GeminiService {
         }
 
         if ($autoDetect) {
-            // Let the AI decide the best question types and counts based on content
-            $prompt = "You are an expert quiz generator. Analyze the lesson content below carefully.\n\n"
-                . "IMPORTANT RULES:\n"
-                . "1. If the content already contains multiple-choice questions, extract and reuse them as MCQ type.\n"
-                . "2. If the content contains True/False questions, extract them as true_false type.\n"
-                . "3. If the content is plain lesson material, generate the most appropriate mix of question types based on the content.\n"
-                . "4. Generate between 5 and 15 questions total. Choose the best types for the content.\n"
-                . "5. Return ONLY a valid JSON array. No markdown, no code blocks, no explanation.\n\n"
-                . "Each object must have:\n"
-                . "- \"type\": \"mcq\" or \"true_false\"\n"
-                . "- \"question\": the question text\n"
-                . "- \"options\": array of {\"label\": \"A\", \"text\": \"...\"} — A/B/C/D for MCQ, [{\"label\":\"T\",\"text\":\"True\"},{\"label\":\"F\",\"text\":\"False\"}] for true_false\n"
-                . "- \"correct_answer\": the correct label (A/B/C/D for MCQ, T or F for true_false)\n"
-                . "- \"points\": 1\n\n"
-                . "LESSON CONTENT:\n{$text}";
+            $prompt = 'Analyze the lesson content and generate 5 to 10 quiz questions. '
+                . 'If the content has existing MCQ questions extract them as type "mcq". '
+                . 'If it has True/False questions extract them as type "true_false". '
+                . 'Otherwise generate MCQ questions. '
+                . 'OUTPUT FORMAT: Return ONLY a raw JSON array — no markdown, no code fences, no explanation, no text before or after the array. '
+                . 'Each element: {"type":"mcq","question":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correct_answer":"A","points":1} '
+                . 'For true_false: {"type":"true_false","question":"...","options":[{"label":"T","text":"True"},{"label":"F","text":"False"}],"correct_answer":"T","points":1} '
+                . "\n\nLESSON CONTENT:\n{$text}";
         } else {
-            // Teacher-specified counts
             $parts = [];
-            if ($mcqCount > 0) $parts[] = "{$mcqCount} multiple-choice questions (MCQ)";
-            if ($tfCount  > 0) $parts[] = "{$tfCount} True/False questions";
+            if ($mcqCount > 0) $parts[] = "{$mcqCount} MCQ";
+            if ($tfCount  > 0) $parts[] = "{$tfCount} True/False";
             $typeInstruction = implode(' and ', $parts);
 
-            $prompt = "You are a quiz generator. Based on the lesson content below, generate exactly {$typeInstruction}.\n\n"
-                . "Return ONLY a valid JSON array. No markdown, no code blocks, no explanation. Each object must have:\n"
-                . "- \"type\": \"mcq\" or \"true_false\"\n"
-                . "- \"question\": the question text\n"
-                . "- \"options\": array of {\"label\": \"A\", \"text\": \"...\"} — A/B/C/D for MCQ, [{\"label\":\"T\",\"text\":\"True\"},{\"label\":\"F\",\"text\":\"False\"}] for true_false\n"
-                . "- \"correct_answer\": the correct label\n"
-                . "- \"points\": 1\n\n"
-                . "LESSON CONTENT:\n{$text}";
+            $prompt = "Generate exactly {$typeInstruction} questions from the lesson content below. "
+                . 'OUTPUT FORMAT: Return ONLY a raw JSON array — no markdown, no code fences, no explanation, no text before or after the array. '
+                . 'MCQ element: {"type":"mcq","question":"...","options":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correct_answer":"A","points":1} '
+                . 'True/False element: {"type":"true_false","question":"...","options":[{"label":"T","text":"True"},{"label":"F","text":"False"}],"correct_answer":"T","points":1} '
+                . "\n\nLESSON CONTENT:\n{$text}";
         }
 
         $payload = json_encode([
             'model'       => $this->model,
             'messages'    => [
-                ['role' => 'system', 'content' => 'You are a quiz generator. Always respond with a valid JSON array only. No markdown, no explanation.'],
-                ['role' => 'user',   'content' => $prompt],
+                [
+                    'role'    => 'system',
+                    'content' => 'You are a quiz generator API. You output ONLY raw valid JSON arrays. Never use markdown. Never add explanations. Your entire response must start with [ and end with ].',
+                ],
+                ['role' => 'user', 'content' => $prompt],
             ],
-            'temperature' => 0.4,
+            'temperature' => 0.3,
             'max_tokens'  => 4096,
         ]);
 
@@ -74,7 +66,7 @@ class GeminiService {
                 'Authorization: Bearer ' . $this->apiKey,
             ],
             CURLOPT_TIMEOUT        => 60,
-            CURLOPT_SSL_VERIFYPEER => true,   // Always verify SSL certificates
+            CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
         ]);
 
@@ -101,29 +93,109 @@ class GeminiService {
             return false;
         }
 
-        // Strip markdown code fences if model adds them
-        $content = preg_replace('/^```(?:json)?\s*/i', '', trim($content));
-        $content = preg_replace('/\s*```$/', '', $content);
-        $content = trim($content);
+        $content = $this->extractJsonArray($content);
 
         $parsed = json_decode($content, true);
 
         if (!is_array($parsed)) {
-            error_log('Groq: failed to parse JSON — ' . substr($content, 0, 300));
+            error_log('Groq: failed to parse JSON — ' . substr($content, 0, 500));
             return false;
         }
 
-        // Unwrap if model returned {"questions": [...]}
-        if (!isset($parsed[0]) && is_array(array_values($parsed)[0] ?? null)) {
-            $parsed = array_values($parsed)[0];
+        // Unwrap {"questions":[...]} or any single-key wrapper
+        if (!isset($parsed[0])) {
+            foreach ($parsed as $val) {
+                if (is_array($val) && isset($val[0])) {
+                    $parsed = $val;
+                    break;
+                }
+            }
         }
 
-        if (empty($parsed)) {
-            error_log('Groq: empty questions array');
+        if (empty($parsed) || !isset($parsed[0])) {
+            error_log('Groq: empty or non-indexed questions array after unwrap');
             return false;
         }
 
-        return $parsed;
+        return $this->normaliseQuestions($parsed);
+    }
+
+    /**
+     * Extract the first JSON array from a string that may contain
+     * markdown fences, leading text, or trailing text.
+     */
+    private function extractJsonArray(string $content): string {
+        // Strip markdown code fences
+        $content = preg_replace('/^```(?:json)?\s*/i', '', trim($content));
+        $content = preg_replace('/\s*```$/m', '', $content);
+        $content = trim($content);
+
+        // If it already starts with [, return as-is
+        if (str_starts_with($content, '[')) {
+            return $content;
+        }
+
+        // Find the first [ and last ] to extract the array
+        $start = strpos($content, '[');
+        $end   = strrpos($content, ']');
+        if ($start !== false && $end !== false && $end > $start) {
+            return substr($content, $start, $end - $start + 1);
+        }
+
+        return $content;
+    }
+
+    /**
+     * Normalise AI question objects to a consistent structure.
+     */
+    private function normaliseQuestions(array $parsed): array {
+        $validTypes = ['mcq', 'true_false', 'identification', 'fill_blank', 'enumeration'];
+        $normalised = [];
+
+        foreach ($parsed as $q) {
+            if (!is_array($q)) continue;
+
+            $type     = in_array($q['type'] ?? '', $validTypes, true) ? $q['type'] : 'mcq';
+            $question = trim($q['question'] ?? '');
+            if ($question === '') continue;
+
+            // Options
+            $options = is_array($q['options'] ?? null) ? $q['options'] : [];
+            if ($type === 'true_false') {
+                $options = [
+                    ['label' => 'T', 'text' => 'True'],
+                    ['label' => 'F', 'text' => 'False'],
+                ];
+            }
+
+            // Correct answer
+            $ans = trim((string)($q['correct_answer'] ?? ''));
+            if ($type === 'mcq') {
+                $ans = strtoupper($ans);
+                if (!in_array($ans, ['A','B','C','D'], true)) $ans = 'A';
+            } elseif ($type === 'true_false') {
+                $ans = in_array(strtoupper($ans), ['T','TRUE','1','YES'], true) ? 'T' : 'F';
+            } elseif ($type === 'enumeration' && is_array($q['correct_answer'] ?? null)) {
+                $ans = implode(',', array_map('trim', $q['correct_answer']));
+            }
+
+            if ($ans === '') continue;
+
+            $normalised[] = [
+                'type'           => $type,
+                'question'       => $question,
+                'options'        => $options,
+                'correct_answer' => $ans,
+                'points'         => max(1, (int)($q['points'] ?? 1)),
+            ];
+        }
+
+        if (empty($normalised)) {
+            error_log('Groq: no valid questions after normalisation');
+            return [];
+        }
+
+        return $normalised;
     }
 }
 

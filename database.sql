@@ -29,6 +29,7 @@ CREATE TABLE quizzes (
   time_limit    INT NOT NULL COMMENT 'Duration in seconds',
   is_randomized TINYINT(1) DEFAULT 0,
   is_active     TINYINT(1) DEFAULT 1,
+  expires_at    DATETIME NULL COMMENT 'Auto-delete after this date (NULL = never)',
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
@@ -63,7 +64,7 @@ CREATE TABLE quiz_sessions (
   started_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   submitted_at TIMESTAMP NULL,
   status       ENUM('in_progress','submitted','timed_out') DEFAULT 'in_progress',
-  FOREIGN KEY (quiz_id)    REFERENCES quizzes(id),
+  FOREIGN KEY (quiz_id)    REFERENCES quizzes(id) ON DELETE CASCADE,
   FOREIGN KEY (student_id) REFERENCES users(id),
   INDEX idx_session_lookup (student_id, quiz_id, status)
 );
@@ -76,8 +77,8 @@ CREATE TABLE answers (
   student_answer VARCHAR(255),
   is_correct     TINYINT(1) DEFAULT 0,
   answered_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (session_id)  REFERENCES quiz_sessions(id),
-  FOREIGN KEY (question_id) REFERENCES questions(id),
+  FOREIGN KEY (session_id)  REFERENCES quiz_sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE,
   INDEX idx_answers_session (session_id)
 );
 
@@ -91,9 +92,9 @@ CREATE TABLE results (
   total_points INT DEFAULT 0,
   percentage   DECIMAL(5,2) DEFAULT 0.00,
   computed_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (session_id)  REFERENCES quiz_sessions(id),
+  FOREIGN KEY (session_id)  REFERENCES quiz_sessions(id) ON DELETE CASCADE,
   FOREIGN KEY (student_id)  REFERENCES users(id),
-  FOREIGN KEY (quiz_id)     REFERENCES quizzes(id),
+  FOREIGN KEY (quiz_id)     REFERENCES quizzes(id) ON DELETE CASCADE,
   INDEX idx_results_quiz (quiz_id, percentage DESC)
 );
 

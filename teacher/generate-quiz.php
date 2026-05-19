@@ -64,7 +64,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'gener
                 $questions = $gemini->generateQuestions($trimmed, $mcqCount, $tfCount, $autoDetect);
 
                 if ($questions === false || empty($questions)) {
-                    $error = 'AI could not generate questions. Try again or use a different file.';
+                    $error = 'AI could not generate questions. Try again or use a different file. '
+                           . 'Tip: make sure the file has readable text (not scanned images).';
                 } else {
                     $step = 'review';
                     $_SESSION['gen_questions'] = $questions;
@@ -88,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         $step  = 'upload';
     } else {
         $quizId = createQuiz([
-            'title'         => $savedTitle,
+            'title'         => $savedTitle ?: 'Generated Quiz',
             'description'   => 'Auto-generated from uploaded lesson file.',
             'time_limit'    => $timeLimit,
             'is_randomized' => 1,
@@ -98,13 +99,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
             $error = 'Failed to create quiz. Please try again.';
             $step  = 'upload';
         } else {
+            $validTypes = ['mcq', 'true_false', 'identification', 'fill_blank', 'enumeration'];
+            $saved = 0;
+
             foreach ($savedQuestions as $i => $q) {
-                $qType = in_array($q['type'] ?? '', ['mcq','true_false']) ? $q['type'] : 'mcq';
+                $qType = in_array($q['type'] ?? '', $validTypes, true) ? $q['type'] : 'mcq';
                 $qText = trim($q['question'] ?? '');
-                $qAns  = trim($q['correct_answer'] ?? 'A');
                 $qPts  = max(1, (int)($q['points'] ?? 1));
 
-                if (empty($qText)) continue;
+                if ($qText === '') continue;
+
+                // Build correct_answer based on type
+                if ($qType === 'mcq') {
+                    $qAns = strtoupper(trim($q['correct_answer'] ?? 'A'));
+                    if (!in_array($qAns, ['A','B','C','D'], true)) $qAns = 'A';
+
+                } elseif ($qType === 'true_false') {
+                    $raw  = strtoupper(trim($q['correct_answer'] ?? 'T'));
+                    // Accept T/F, True/False, 1/0
+                    $qAns = in_array($raw, ['T','TRUE','1'], true) ? 'T' : 'F';
+
+                } elseif ($qType === 'enumeration') {
+                    // AI may return items as array or comma-string
+                    if (is_array($q['correct_answer'] ?? null)) {
+                        $qAns = implode(',', array_map('trim', $q['correct_answer']));
+                    } else {
+                        $qAns = trim($q['correct_answer'] ?? '');
+                    }
+                    if ($qAns === '') continue;
+
+                } else {
+                    // identification / fill_blank
+                    $qAns = trim($q['correct_answer'] ?? '');
+                    if ($qAns === '') continue;
+                }
 
                 $qId = addQuestion($quizId, [
                     'question_type'  => $qType,
@@ -114,18 +142,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
                     'order_index'    => $i,
                 ]);
 
-                if ($qId !== false && !empty($q['options'])) {
-                    foreach ($q['options'] as $opt) {
-                        $label = strtoupper(trim($opt['label'] ?? ''));
-                        $text  = trim($opt['text'] ?? '');
-                        if ($label && $text) addOption($qId, $label, $text);
+                if ($qId === false) continue;
+                $saved++;
+
+                // Save options
+                if ($qType === 'mcq') {
+                    // Use AI-provided options if present, otherwise skip (edit-quiz can add them)
+                    $opts = $q['options'] ?? [];
+                    if (!empty($opts)) {
+                        foreach ($opts as $opt) {
+                            $label = strtoupper(trim($opt['label'] ?? ''));
+                            $text  = trim($opt['text'] ?? '');
+                            if ($label !== '' && $text !== '') {
+                                addOption($qId, $label, $text);
+                            }
+                        }
                     }
+                } elseif ($qType === 'true_false') {
+                    // Always add T/F options — take-quiz.php requires them
+                    addOption($qId, 'T', 'True');
+                    addOption($qId, 'F', 'False');
                 }
+                // identification / fill_blank / enumeration have no options rows
             }
 
             unset($_SESSION['gen_questions'], $_SESSION['gen_title']);
-            header('Location: ' . APP_BASE . '/teacher/edit-quiz.php?id=' . $quizId . '&success=question_added');
-            exit;
+
+            if ($saved === 0) {
+                // Quiz was created but no questions saved — delete it and show error
+                deleteQuiz($quizId);
+                $error = 'No valid questions could be saved. The AI response may have been malformed. Please try again.';
+                $step  = 'upload';
+            } else {
+                header('Location: ' . APP_BASE . '/teacher/edit-quiz.php?id=' . $quizId . '&success=question_added');
+                exit;
+            }
         }
     }
 }
@@ -140,11 +191,16 @@ if ($step === 'upload' && !empty($_SESSION['gen_questions'])) {
 $csrfToken = generateCsrfToken();
 
 // Count types for the review summary
-$mcqGenerated = 0; $tfGenerated = 0;
+$typeCounts = [];
 foreach ($questions as $q) {
-    if (($q['type'] ?? '') === 'mcq') $mcqGenerated++;
-    else $tfGenerated++;
+    $t = $q['type'] ?? 'mcq';
+    $typeCounts[$t] = ($typeCounts[$t] ?? 0) + 1;
 }
+$mcqGenerated = $typeCounts['mcq']        ?? 0;
+$tfGenerated  = $typeCounts['true_false'] ?? 0;
+$idGenerated  = $typeCounts['identification'] ?? 0;
+$fbGenerated  = $typeCounts['fill_blank'] ?? 0;
+$enGenerated  = $typeCounts['enumeration'] ?? 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -179,6 +235,9 @@ foreach ($questions as $q) {
         .q-type-badge { font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:.2rem .6rem; border-radius:999px; }
         .q-type-badge.mcq { background:rgba(67,97,238,.2); color:#a5b4fc; }
         .q-type-badge.tf  { background:rgba(6,182,212,.2); color:#67e8f9; }
+        .q-type-badge.id  { background:rgba(74,222,128,.2); color:#4ade80; }
+        .q-type-badge.fb  { background:rgba(251,191,36,.2); color:#fbbf24; }
+        .q-type-badge.en  { background:rgba(167,139,250,.2); color:#a78bfa; }
         .q-text { font-weight:700; margin:.5rem 0; color:#e0e0f0; }
         .q-opts { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.5rem; }
         .q-opt { font-size:.8rem; padding:.2rem .6rem; border-radius:.4rem; background:rgba(255,255,255,.05); color:#c0c0d8; }
@@ -330,12 +389,21 @@ foreach ($questions as $q) {
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <div>
             <h4 class="fw-bold mb-1">✅ <?= count($questions) ?> Questions Generated</h4>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 flex-wrap">
                 <?php if ($mcqGenerated > 0): ?>
                     <span class="q-type-badge mcq"><?= $mcqGenerated ?> MCQ</span>
                 <?php endif; ?>
                 <?php if ($tfGenerated > 0): ?>
                     <span class="q-type-badge tf"><?= $tfGenerated ?> True/False</span>
+                <?php endif; ?>
+                <?php if ($idGenerated > 0): ?>
+                    <span class="q-type-badge id"><?= $idGenerated ?> Identification</span>
+                <?php endif; ?>
+                <?php if ($fbGenerated > 0): ?>
+                    <span class="q-type-badge fb"><?= $fbGenerated ?> Fill Blank</span>
+                <?php endif; ?>
+                <?php if ($enGenerated > 0): ?>
+                    <span class="q-type-badge en"><?= $enGenerated ?> Enumeration</span>
                 <?php endif; ?>
             </div>
         </div>
@@ -345,23 +413,38 @@ foreach ($questions as $q) {
     <!-- Question preview -->
     <div class="mb-4">
         <?php foreach ($questions as $i => $q): ?>
+        <?php $qtype = $q['type'] ?? 'mcq'; ?>
         <div class="q-card">
             <div class="d-flex align-items-center gap-2 mb-1">
                 <span class="text-muted small fw-bold"><?= $i + 1 ?>.</span>
-                <span class="q-type-badge <?= ($q['type'] ?? '') === 'mcq' ? 'mcq' : 'tf' ?>">
-                    <?= ($q['type'] ?? '') === 'mcq' ? 'MCQ' : 'True / False' ?>
-                </span>
+                <?php
+                $typeLabelMap = [
+                    'mcq'            => ['label' => 'MCQ',            'css' => 'mcq'],
+                    'true_false'     => ['label' => 'True / False',   'css' => 'tf'],
+                    'identification' => ['label' => 'Identification', 'css' => 'id'],
+                    'fill_blank'     => ['label' => 'Fill Blank',     'css' => 'fb'],
+                    'enumeration'    => ['label' => 'Enumeration',    'css' => 'en'],
+                ];
+                $tl = $typeLabelMap[$qtype] ?? ['label' => strtoupper($qtype), 'css' => 'mcq'];
+                ?>
+                <span class="q-type-badge <?= e($tl['css']) ?>"><?= e($tl['label']) ?></span>
                 <span class="text-muted small ms-auto"><?= (int)($q['points'] ?? 1) ?> pt</span>
             </div>
             <div class="q-text"><?= e($q['question'] ?? '') ?></div>
+            <?php if (!empty($q['options'])): ?>
             <div class="q-opts">
-                <?php foreach ($q['options'] ?? [] as $opt): ?>
+                <?php foreach ($q['options'] as $opt): ?>
                     <span class="q-opt <?= ($opt['label'] === ($q['correct_answer'] ?? '')) ? 'correct' : '' ?>">
                         <?= e($opt['label']) ?>. <?= e($opt['text']) ?>
                         <?= ($opt['label'] === ($q['correct_answer'] ?? '')) ? ' ✓' : '' ?>
                     </span>
                 <?php endforeach; ?>
             </div>
+            <?php elseif (in_array($qtype, ['identification','fill_blank','enumeration'])): ?>
+            <div class="mt-2" style="font-size:.82rem; color:#4ade80;">
+                ✓ Answer: <strong><?= e($q['correct_answer'] ?? '') ?></strong>
+            </div>
+            <?php endif; ?>
         </div>
         <?php endforeach; ?>
     </div>
